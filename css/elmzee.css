@@ -1,0 +1,26 @@
+.container {
+  display: flex;
+  flex-direction: column;
+}
+
+.container-row {
+  display: flex;
+  justify-content: space-between;
+}
+
+.fixed {
+  width: 60px;
+}
+
+h1.dice {
+  text-align: center;
+}
+
+.lock-button {
+  text-align: center;
+  width: inherit;
+}
+
+.flex-item {
+  flex-grow: 1;
+}

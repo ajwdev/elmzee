@@ -3,9 +3,11 @@
 
 import Html exposing (..)
 import Html.Events exposing (..)
+import Html.Attributes exposing (..)
 import Debug
 import Random
 import Tuple
+import Array exposing (Array)
 
 
 
@@ -18,41 +20,27 @@ main =
     }
 
 
+type alias Die =
+  (Int, Bool)
 
--- MODEL
 
 type alias Model =
-  -- TODO Would it be cleaner to put all of these in a two lists? Or at least tuple of (value,lock) ?
-  { firstFace: Int
-  , firstLock: Bool
-  , secondFace: Int
-  , secondLock: Bool
-  , thirdFace: Int
-  , thirdLock: Bool
-  , fourthFace: Int
-  , fourthLock: Bool
-  , fifthFace: Int
-  , fifthLock: Bool
+  { dice: Array Die
   }
+
+
+initDie : (Int, Bool)
+initDie =
+  (1, False)
 
 
 init : (Model, Cmd Msg)
 init =
   (
-    { firstFace = 1
-    , firstLock = False
-    , secondFace = 2
-    , secondLock = False
-    , thirdFace = 3
-    , thirdLock = False
-    , fourthFace = 4
-    , fourthLock = False
-    , fifthFace = 5
-    , fifthLock = False
-    }, Cmd.none
+    { dice = Array.initialize 5 (always initDie)
+    }
+    , Cmd.none
   )
-
--- UPDATE
 
 
 type Msg
@@ -79,6 +67,16 @@ positions =
   ]
 
 
+indexFromPosition : Position -> Int
+indexFromPosition pos =
+  case pos of
+    First  -> 0
+    Second -> 1
+    Third  -> 2
+    Fourth -> 3
+    Fifth  -> 4
+
+
 rollDie : Random.Generator Int
 rollDie =
   Random.int 1 6
@@ -91,81 +89,76 @@ rollAll len =
 
 rollable : Model -> List Position
 rollable model =
-  List.filter (not << lockFromPosition model) positions
+  List.filter (not << getLock model) positions
 
 
-valueFromPosition : Model -> Position -> String
-valueFromPosition model pos =
-  case pos of
-    First ->
-      toString model.firstFace
+getValue : Model -> Position -> Int
+getValue model pos =
+  case Array.get (indexFromPosition pos) model.dice of
+    Nothing ->
+      -1
 
-    Second ->
-      toString model.secondFace
-
-    Third ->
-      toString model.thirdFace
-
-    Fourth ->
-      toString model.fourthFace
-
-    Fifth ->
-      toString model.fifthFace
+    Just value ->
+      Tuple.first value
 
 
-lockFromPosition : Model -> Position -> Bool
-lockFromPosition model pos =
-  case pos of
-    First ->
-      model.firstLock
+getLock : Model -> Position -> Bool
+getLock model pos =
+  case Array.get (indexFromPosition pos) model.dice of
+    Nothing ->
+      False
 
-    Second ->
-      model.secondLock
-
-    Third ->
-      model.thirdLock
-
-    Fourth ->
-      model.fourthLock
-
-    Fifth ->
-      model.fifthLock
-
-
--- TODO Delete this?
--- toggleLock : Model -> Position -> Model
--- toggleLock model pos =
---   case pos of
---     First ->
---       { model | firstLock = not model.firstLock }
-
---     Second ->
---       { model | secondLock = not model.secondLock }
-
---     Third ->
---       { model | thirdLock = not model.thirdLock }
-
---     Fourth ->
---       { model | fourthLock = not model.fourthLock }
-
---     Fifth ->
---       { model | fifthLock = not model.fifthLock }
+    Just value ->
+      Tuple.second value
 
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   let
-    updateDice : Model -> List (Int, Position) -> Model
-    updateDice model values =
+    updateSingleValue : Position -> Int -> Array Die -> Array Die
+    updateSingleValue pos value dice =
+      let
+        setVal : Maybe Die -> Int -> Die
+        setVal dice val =
+          case dice of
+            Nothing -> (-1, False) -- This shouldn't happen
+
+            Just x ->
+              Tuple.mapFirst (\_ -> val) x
+      in
+
+      Array.set
+        (indexFromPosition pos)
+        (setVal (Array.get (indexFromPosition pos) dice) value)
+        dice
+
+
+    toggleLock: Position -> Array Die -> Array Die
+    toggleLock pos dice =
+      let
+        setLock : Maybe Die -> Die
+        setLock dice =
+          case dice of
+            Nothing ->
+              (-1, False) -- This shouldn't happen
+
+            Just x ->
+              Tuple.mapSecond not x
+      in
+      Array.set
+        (indexFromPosition pos)
+        (setLock (Array.get (indexFromPosition pos) dice))
+        dice
+
+
+    updateValue : List (Position, Int) -> Model -> Model
+    updateValue values model =
       case values of
         [] -> model
         (x::xs) ->
-          case Tuple.second x of
-            First ->  updateDice { model | firstFace = Tuple.first x } xs
-            Second -> updateDice { model | secondFace = Tuple.first x } xs
-            Third ->  updateDice { model | thirdFace = Tuple.first x } xs
-            Fourth -> updateDice { model | fourthFace = Tuple.first x } xs
-            Fifth ->  updateDice { model | fifthFace = Tuple.first x } xs
+          updateValue xs {
+            model | dice = updateSingleValue (Tuple.first x) (Tuple.second x) model.dice
+          }
 
   in
     case msg of
@@ -173,18 +166,15 @@ update msg model =
         (model, Random.generate UpdateFaces (rollAll (List.length (rollable model))))
 
       UpdateFaces values ->
-        (updateDice model (List.map2 (,) values (rollable model)), Cmd.none)
+        Debug.log (toString values)
+        (updateValue (List.map2 (,) (rollable model) values) model, Cmd.none)
 
       ToggleLock pos ->
-        case pos of
-          First ->  ({ model | firstLock = not model.firstLock }, Cmd.none)
-          Second -> ({ model | secondLock = not model.secondLock }, Cmd.none)
-          Third ->  ({ model | thirdLock = not model.thirdLock }, Cmd.none)
-          Fourth -> ({ model | fourthLock = not model.fourthLock }, Cmd.none)
-          Fifth ->  ({ model | fifthLock = not model.fifthLock }, Cmd.none)
+        ({ model | dice = toggleLock pos model.dice }, Cmd.none)
+
+
 
 -- SUBSCRIPTIONS
-
 subscriptions : Model -> Sub Msg
 subscriptions model =
   Sub.none
@@ -192,23 +182,43 @@ subscriptions model =
 
 
 -- VIEW
+withStyle html =
+  div []
+  [ node "style" [type_ "text/css"]
+    [text "@import url(/css/elmzee.css)"]
+  , html
+  ]
 
 diceComponent : Model -> Position -> Html Msg
 diceComponent model pos =
-  div []
-    [ h1 [] [ text (valueFromPosition model pos) ]
-    , button [ onClick (ToggleLock pos) ] [ text "Lock" ]
-    ]
+  let
+    buttonDisplay : Model -> Position -> String
+    buttonDisplay model pos =
+      if (getLock model pos) then "Unlock" else "Lock"
+
+  in
+    div [ class "fixed" ]
+      [ h1 [ class "dice" ] [ text (toString (getValue model pos)) ]
+      , button [
+          onClick (ToggleLock pos),
+          class "lock-button"
+        ] [ text (buttonDisplay model pos) ]
+      ]
 
 
 view : Model -> Html Msg
 view model =
-  div []
-    [ diceComponent model First
-    , diceComponent model Second
-    , diceComponent model Third
-    , diceComponent model Fourth
-    , diceComponent model Fifth
-    , button [ onClick Roll ] [ text "Roll" ]
+  div [ class "container", style [("width", "400px")] ]
+    [ div [ class "container-row" ]
+      [ diceComponent model First
+      , diceComponent model Second
+      , diceComponent model Third
+      , diceComponent model Fourth
+      , diceComponent model Fifth
+      ],
+      div [ class "container-row" ]
+      [ button [ onClick Roll, style [("width", "400px"),("height","40px")] ] [ text "Roll" ]
+      ]
     ]
+  |> withStyle
 
