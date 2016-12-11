@@ -1,15 +1,12 @@
--- Read more about this program in the official Elm guide:
--- https://guide.elm-lang.org/architecture/effects/random.html
-
 import Html exposing (..)
 import Html.Events exposing (..)
 import Html.Attributes exposing (..)
-import Debug
+import Array exposing (Array)
 import Random
 import Tuple
-import Array exposing (Array)
+import Debug
 
-
+import Score
 
 main =
   Html.program
@@ -26,6 +23,10 @@ type alias Die =
 
 type alias Model =
   { dice: Array Die
+  , round: Int
+  , turn: Int
+  , lower: Array (Maybe Int)
+  , upper: Array (Maybe Int)
   }
 
 
@@ -38,6 +39,10 @@ init : (Model, Cmd Msg)
 init =
   (
     { dice = Array.initialize 5 (always initDie)
+    , round = 0
+    , turn = 0
+    , lower = Array.initialize (List.length lowerScores) (always Nothing)
+    , upper = Array.initialize (List.length upperScores) (always Nothing)
     }
     , Cmd.none
   )
@@ -46,7 +51,6 @@ init =
 type Msg
   = Roll
   | ToggleLock Position
-  -- | NewFace (Position Int)
   | UpdateFaces (List Int)
 
 
@@ -65,6 +69,68 @@ positions =
   , Fourth
   , Fifth
   ]
+
+
+type Upper
+  = Ones
+  | Twos
+  | Threes
+  | Fours
+  | Fives
+
+type Lower
+  = ThreeOfAKind
+  | FourOfAKind
+  | FullHouse
+  | SmallStraight
+  | LargeStraight
+  | Yahtzee
+  | Chance
+
+upperScores =
+  [ Ones
+  , Twos
+  , Threes
+  , Fours
+  , Fives
+  ]
+
+lowerScores =
+  [ ThreeOfAKind
+  , FourOfAKind
+  , FullHouse
+  , SmallStraight
+  , LargeStraight
+  , Yahtzee
+  , Chance
+  ]
+
+
+maybeSum : Maybe Int -> Maybe Int -> Maybe Int
+maybeSum a b =
+  Just ((Maybe.withDefault 0 a) + (Maybe.withDefault 0 b))
+
+calcLower : Model -> Int
+calcLower model =
+  case Array.foldl maybeSum (Just 0) model.lower of
+    Nothing ->
+      0
+
+    Just sum ->
+      sum
+
+calcUpper : Model -> Int
+calcUpper model =
+  case Array.foldl maybeSum (Just 0) model.upper of
+    Nothing ->
+      0
+
+    Just sum ->
+      sum
+
+score : Model -> Int
+score model =
+  (+) (calcLower model) (calcUpper model)
 
 
 indexFromPosition : Position -> Int
@@ -102,6 +168,11 @@ getValue model pos =
       Tuple.first value
 
 
+getAllValues : Model -> List Int
+getAllValues model =
+  Array.toList (Array.map Tuple.first model.dice)
+
+
 getLock : Model -> Position -> Bool
 getLock model pos =
   case Array.get (indexFromPosition pos) model.dice of
@@ -121,7 +192,8 @@ update msg model =
         setVal : Maybe Die -> Int -> Die
         setVal dice val =
           case dice of
-            Nothing -> (-1, False) -- This shouldn't happen
+            Nothing ->
+              (-1, False) -- This shouldn't happen
 
             Just x ->
               Tuple.mapFirst (\_ -> val) x
@@ -166,7 +238,6 @@ update msg model =
         (model, Random.generate UpdateFaces (rollAll (List.length (rollable model))))
 
       UpdateFaces values ->
-        Debug.log (toString values)
         (updateValue (List.map2 (,) (rollable model) values) model, Cmd.none)
 
       ToggleLock pos ->
@@ -189,6 +260,15 @@ withStyle html =
   , html
   ]
 
+unwrapString : Maybe a -> String
+unwrapString a =
+  case a of
+    Nothing ->
+      "0"
+    Just val ->
+      toString val
+
+
 diceComponent : Model -> Position -> Html Msg
 diceComponent model pos =
   let
@@ -199,26 +279,54 @@ diceComponent model pos =
   in
     div [ class "fixed" ]
       [ h1 [ class "dice" ] [ text (toString (getValue model pos)) ]
-      , button [
-          onClick (ToggleLock pos),
-          class "lock-button"
+      , button
+        [ onClick (ToggleLock pos)
+        , class "lock-button"
         ] [ text (buttonDisplay model pos) ]
       ]
+
+
+scoreboardComponent : Model -> Html Msg
+scoreboardComponent model =
+  div [ class "scoreboard" ]
+  [ div [] [ text ("Three of a kind: " ++ (unwrapString (Score.calcThreeOfAKind (getAllValues model)))) ]
+  , div [] [ text ("Four of a kind: " ++ (unwrapString (Score.calcFourOfAKind (getAllValues model)))) ]
+  , div [] [ text ("Yahtzee: " ++ (unwrapString (Score.yahtzee (getAllValues model)))) ]
+  , div [] [ text ("Small straight: " ++ (unwrapString (Score.smallStraight (getAllValues model)))) ]
+  , div [] [ text ("Large straight: " ++ (unwrapString (Score.largeStraight (getAllValues model)))) ]
+  , div [] [ text ("Full House: " ++ (unwrapString (Score.fullHouse (getAllValues model)))) ]
+  , div [] [ text ("Chance: " ++ (unwrapString (Score.chance (getAllValues model)))) ]
+  , div [] [ text ("Ones: " ++ (unwrapString (Score.ones (getAllValues model)))) ]
+  , div [] [ text ("Twos: " ++ (unwrapString (Score.twos (getAllValues model)))) ]
+  , div [] [ text ("Threes: " ++ (unwrapString (Score.threes (getAllValues model)))) ]
+  , div [] [ text ("Fours: " ++ (unwrapString (Score.fours (getAllValues model)))) ]
+  , div [] [ text ("Fives: " ++ (unwrapString (Score.fives (getAllValues model)))) ]
+  , div [] [ text ("Sixes: " ++ (unwrapString (Score.sixes (getAllValues model)))) ]
+  ]
 
 
 view : Model -> Html Msg
 view model =
   div [ class "container", style [("width", "400px")] ]
-    [ div [ class "container-row" ]
-      [ diceComponent model First
-      , diceComponent model Second
-      , diceComponent model Third
-      , diceComponent model Fourth
-      , diceComponent model Fifth
-      ],
-      div [ class "container-row" ]
-      [ button [ onClick Roll, style [("width", "400px"),("height","40px")] ] [ text "Roll" ]
-      ]
+  [ h1 [ ] [ text (toString (score model)) ]
+  , div [ class "container-row" ]
+    [ diceComponent model First
+    , diceComponent model Second
+    , diceComponent model Third
+    , diceComponent model Fourth
+    , diceComponent model Fifth
     ]
+  , div [ class "container-row" ]
+    [ button
+      [ onClick Roll
+      , style
+        [ ("width", "400px")
+        , ("height","40px")
+        , ("margin-top", "10px")
+        ]
+      ] [ text "Roll" ]
+    ]
+  , div [ class "container-row" ] [ scoreboardComponent model ]
+  ]
   |> withStyle
 
