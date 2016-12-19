@@ -195,6 +195,10 @@ getLock model pos =
       Tuple.second value
 
 
+clearLocks: Array Die -> Array Die
+clearLocks dice =
+  Array.map (Tuple.mapSecond (\_ -> False)) dice
+
 toggleLock: Position -> Array Die -> Array Die
 toggleLock pos dice =
   let
@@ -262,10 +266,18 @@ setScore score model =
   in
     if (List.member score upperScores) then
       { model | upper = updateStoreCache
-        ((upperFunc score) (getAllValues model)) (indexUpper score) model.upper }
+        ((upperFunc score) (getAllValues model)) (indexUpper score) model.upper
+      , turn = 0
+      , round = model.round + 1
+      , dice = clearLocks model.dice
+      }
     else
       { model | lower = updateStoreCache
-        ((lowerFunc score) (getAllValues model)) (indexLower score) model.lower }
+        ((lowerFunc score) (getAllValues model)) (indexLower score) model.lower
+      , turn = 0
+      , round = model.round + 1
+      , dice = clearLocks model.dice
+      }
 
 
 update : Msg -> Model -> (Model, Cmd Msg)
