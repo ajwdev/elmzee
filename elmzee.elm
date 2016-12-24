@@ -28,6 +28,7 @@ type alias Model =
     { dice : Array Die
     , round : Int
     , turn : Int
+    , gameOver : Bool
     , lower : Array (Maybe Int)
     , upper : Array (Maybe Int)
     }
@@ -41,8 +42,9 @@ initDie =
 init : ( Model, Cmd Msg )
 init =
     ( { dice = Array.initialize 5 (always initDie)
-      , round = 0
+      , round = 1
       , turn = 0
+      , gameOver = False
       , lower = Array.initialize (List.length lowerScores) (always Nothing)
       , upper = Array.initialize (List.length upperScores) (always Nothing)
       }
@@ -207,6 +209,8 @@ getAllValues model =
     Array.toList (Array.map Tuple.first model.dice)
 
 
+-- TODO Figure out to standardize these lock functions
+
 getLock : Model -> Position -> Bool
 getLock model pos =
     case Array.get (indexFromPosition pos) model.dice of
@@ -220,6 +224,11 @@ getLock model pos =
 clearLocks : Array Die -> Array Die
 clearLocks dice =
     Array.map (Tuple.mapSecond (\_ -> False)) dice
+
+
+clearLocksOnModel : Model -> Model
+clearLocksOnModel model =
+    { model | dice = clearLocks model.dice }
 
 
 toggleLock : Position -> Array Die -> Array Die
@@ -325,9 +334,6 @@ setScore score model =
                         ((upperFunc score) (getAllValues model))
                         (indexUpper score)
                         model.upper
-                , turn = 0
-                , round = model.round + 1
-                , dice = clearLocks model.dice
             }
         else
             { model
@@ -336,10 +342,27 @@ setScore score model =
                         ((lowerFunc score) (getAllValues model))
                         (indexLower score)
                         model.lower
-                , turn = 0
-                , round = model.round + 1
-                , dice = clearLocks model.dice
             }
+
+resetTurn : Model -> Model
+resetTurn model =
+    { model | turn = 0 }
+
+
+incrementRound : Model -> Model
+incrementRound model =
+    { model | round = model.round + 1 }
+
+
+incrementTurn : Model -> Model
+incrementTurn model =
+    { model | turn = model.turn + 1 }
+
+
+checkEndGame : Model -> Model
+checkEndGame model =
+    -- Iterate over lower/upper and make sure they are all maybes instead of checking rounds
+    { model | gameOver = (if model.round > 13 then True else False) }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -377,7 +400,7 @@ update msg model =
     in
         case msg of
             Roll ->
-                ( { model | turn = model.turn + 1 }
+                ( incrementTurn model
                 , Random.generate UpdateFaces (rollAll (List.length (rollable model)))
                 )
 
@@ -388,7 +411,17 @@ update msg model =
                 ( { model | dice = toggleLock pos model.dice }, Cmd.none )
 
             UpdateScore score ->
-                ( setScore score model, Cmd.none )
+                (
+                    (model
+                        |> setScore score
+                        |> resetTurn
+                        |> clearLocksOnModel
+                        |> incrementRound
+                        |> checkEndGame
+                    )
+                , Cmd.none
+                )
+
 
 
 
@@ -518,4 +551,4 @@ view model =
         , div [ class "container-row" ] [ rollComponent model ]
         , div [ class "container-row" ] [ scoreboardComponent model ]
         ]
-        |> withStyle
+    |> withStyle
